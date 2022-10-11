@@ -1,13 +1,13 @@
-# Sample Hardhat Project
+# Staking Contract
 
-This project demonstrates a basic Hardhat use case. It comes with a sample contract, a test for that contract, and a script that deploys that contract.
+WIP
 
-Try running some of the following tasks:
+## Overview 
+### Specs : 
+1. Upgradeable
+2. Owner can fund with an ERC20 reward token and define a total reward rate.
+3. Users can stake an ERC20 staking token at any time.
+4. Users receive rewards in the reward token, proportional to their *stake vs total staked*.
+5. Users can withdraw at any time.
 
-```shell
-npx hardhat help
-npx hardhat test
-REPORT_GAS=true npx hardhat test
-npx hardhat node
-npx hardhat run scripts/deploy.ts
-```
+### Test Coverage : 
