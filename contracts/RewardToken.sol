@@ -4,12 +4,22 @@ pragma solidity ^0.8.4;
 import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 
-/** @notice staking reward token that can only be minted internally.
- */
-contract MyToken is ERC20, Ownable {
-    constructor() ERC20("MyToken", "MTK") {}
+error RewardToken__NotAuthorized();
 
+/** @notice staking reward token that can only be minted by the staking contract.
+ */
+contract RewardToken is ERC20, Ownable {
+    address stakingContract;
+
+    constructor() ERC20("RewardToken", "RWD") {}
+
+    // only mint by the staking contract
     function mint(address to, uint256 amount) internal {
+        if (msg.sender != stakingContract) revert RewardToken__NotAuthorized();
         _mint(to, amount);
+    }
+
+    function setStakingContract(address _stakingContract) public onlyOwner {
+        stakingContract = _stakingContract;
     }
 }
