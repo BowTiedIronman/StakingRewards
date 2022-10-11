@@ -22,8 +22,8 @@ contract Staking is Ownable {
         uint256 timestamp;
     }
 
-    IERC20 public s_stakingToken;
-    IERC20 public s_rewardToken;
+    IERC20 public stakingToken;
+    IRewardToken public rewardToken;
 
     bool public s_isFunded;
     // rate the entire staking pool earns RWD per second, including the initial fund.
@@ -47,11 +47,11 @@ contract Staking is Ownable {
     }
 
     function setStakingToken(address token) public onlyOwner {
-        s_stakingToken = IERC20(token);
+        stakingToken = IERC20(token);
     }
 
     function setRewardToken(address token) public onlyOwner {
-        s_rewardToken = IERC20(token);
+        rewardToken = IRewardToken(token);
     }
 
     /** @dev the inner mapping of owner=>balance resets everytime we change
@@ -59,7 +59,7 @@ contract Staking is Ownable {
      * is always used to access that owner=>balance mapping
      */
     function setStakingTokenAddress(address token) public onlyOwner {
-        s_stakingToken = IERC20(token);
+        stakingToken = IERC20(token);
         s_isFunded = false;
     }
 
@@ -73,16 +73,16 @@ contract Staking is Ownable {
         // ); should the owner earn rewards for the initial fund?
         s_isFunded = true;
         totalStaked += amount;
-        s_stakingToken.transferFrom(msg.sender, address(this), amount);
+        stakingToken.transferFrom(msg.sender, address(this), amount);
     }
 
     function stake(uint256 amount) public isFunded {
-        s_stakingToken.transferFrom(msg.sender, address(this), amount); // test that it reverts if no tokens in wallet
+        stakingToken.transferFrom(msg.sender, address(this), amount); // test that it reverts if no tokens in wallet
         totalStaked += amount;
-        tokenToOwnerToStake[s_stakingToken][msg.sender].push(
+        tokenToOwnerToStake[stakingToken][msg.sender].push(
             Stake(amount, block.timestamp)
         );
-        emit Staked(msg.sender, address(s_stakingToken), amount);
+        emit Staked(msg.sender, address(stakingToken), amount);
     }
 
     function getUserRewards(address staker)
@@ -90,9 +90,12 @@ contract Staking is Ownable {
         view
         returns (uint256[] memory)
     {
-        Stake[] memory stakingHistory = tokenToOwnerToStake[s_stakingToken][
+        Stake[] memory stakingHistory = tokenToOwnerToStake[stakingToken][
             staker
         ];
+
+        uint256 blockt = block.timestamp;
+        console.log("getter UserRewards at timestamp %s", blockt);
         uint256 len = stakingHistory.length;
         uint256[] memory rewards = new uint[](len);
         for (uint i = 0; i < len; i++) {
@@ -106,9 +109,54 @@ contract Staking is Ownable {
         return rewards;
     }
 
-    // should withdraw sender's stake starting from oldest & looping till amount is reached.
-    function withdraw(uint256 amount) public {}
-
     // resets the staked timestamps to current timestamps and claims all rewards
-    function claimReward() public {}
+    function claimRewards(uint256 _amount) public {
+        uint256[] memory rewards = getUserRewards(msg.sender);
+
+        uint256 len = rewards.length;
+        uint256 amountValidated;
+        for (uint i = 0; i < len; i++) {
+            uint256 blockt = block.timestamp;
+            console.log("i %s at timestamp %s", i, blockt);
+            // if reward slot greater than amount requested
+            if (rewards[i] >= _amount) {
+                console.log(
+                    "reward %s greater than amount requested %s",
+                    rewards[i],
+                    _amount
+                );
+                rewards[i] -= _amount;
+                amountValidated += _amount;
+                uint256 timestampReconsiliation = (rewards[i] * totalStaked) /
+                    (rewardRate *
+                        tokenToOwnerToStake[stakingToken][msg.sender][i]
+                            .amount);
+                tokenToOwnerToStake[stakingToken][msg.sender][i].timestamp =
+                    block.timestamp -
+                    timestampReconsiliation;
+                break;
+                // if reward slot less than amount requested
+            } else {
+                console.log(
+                    "reward %s less than amount requested %s",
+                    rewards[i],
+                    _amount
+                );
+                _amount -= rewards[i];
+                amountValidated += rewards[i];
+                rewards[i] = 0;
+                tokenToOwnerToStake[stakingToken][msg.sender][i]
+                    .timestamp = block.timestamp;
+            }
+        }
+        console.log("valid rewards amount to mint %s", amountValidated);
+        rewardToken.mint(msg.sender, amountValidated);
+    }
+
+    // should withdraw sender's stake starting from oldest & looping till amount is reached.
+    function withdraw() public {}
+}
+
+interface IRewardToken {
+    function mint(address to, uint256 amount) external;
 }
