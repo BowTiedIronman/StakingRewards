@@ -3,6 +3,7 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "hardhat/console.sol";
 
 error Staking_TokenNotApproved();
 error Staking_AlreadyFunded();
@@ -84,21 +85,25 @@ contract Staking is Ownable {
         emit Staked(msg.sender, address(s_stakingToken), amount);
     }
 
-    function getUserReward(address user) public view returns (uint256) {
+    function getUserRewards(address staker)
+        public
+        view
+        returns (uint256[] memory)
+    {
         Stake[] memory stakingHistory = tokenToOwnerToStake[s_stakingToken][
-            user
+            staker
         ];
         uint256 len = stakingHistory.length;
-        uint256 totalReward;
+        uint256[] memory rewards = new uint[](len);
         for (uint i = 0; i < len; i++) {
             uint256 stakedAmount = stakingHistory[i].amount;
             uint256 stakedTimestamp = stakingHistory[i].timestamp;
             uint256 _reward = ((block.timestamp - stakedTimestamp) *
                 rewardRate *
                 stakedAmount) / totalStaked;
-            totalReward += _reward;
+            rewards[i] = _reward;
         }
-        return totalReward;
+        return rewards;
     }
 
     // should withdraw sender's stake starting from oldest & looping till amount is reached.
