@@ -65,7 +65,7 @@ network.config.chainId !== 31337
         await increaseAllowance(deployer)
       })
 
-      describe.skip("initialFund", () => {
+      describe("initialFund", () => {
         it("reverts with NotAlreadyFunded", async () => {
           await increaseAllowance()
           await expect(
@@ -81,7 +81,7 @@ network.config.chainId !== 31337
           )
         })
       })
-      describe.skip("stake", () => {
+      describe("stake", () => {
         let stakerBalance = ethers.utils.parseUnits("200")
         beforeEach(async () => {
           await increaseAllowance(deployer)
@@ -106,11 +106,11 @@ network.config.chainId !== 31337
             "21000200000000000000000000"
           )
           expect(
-            (await staking.s_TotalStakes(0)).amount.toString()
-          ).to.be.equal("200000000000000000000")
+            (await staking.s_TotalStakes(1)).amount.toString()
+          ).to.be.equal("21000200000000000000000000")
         })
       })
-      describe.skip("stakerRewards", () => {
+      describe("stakerRewards", () => {
         beforeEach(async () => {
           await increaseAllowance(deployer)
           await staking.initialFund(preMint)
