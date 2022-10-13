@@ -44,18 +44,6 @@ network.config.chainId !== 31337
         return res.wait(1)
       }
 
-      const getUserRewards = async (
-        stakeStruct: { timestamp: BigNumber; amount: BigNumber }[],
-        rewardRate: number,
-        totalStaked: BigNumber,
-        currenBlockTimestamp?: number
-      ) => {
-        if (!currenBlockTimestamp)
-          currenBlockTimestamp = (await hre.ethers.provider.getBlock("latest"))
-            .timestamp
-        for (let i = 0; i < stakeStruct.length; i++) {}
-      }
-
       beforeEach(async () => {
         accounts = await ethers.getSigners()
         deployer = accounts[0]
@@ -245,12 +233,57 @@ network.config.chainId !== 31337
           const stakerHistoryTimestamp = (
             await staking.s_OwnerToStake(staker.address, 0)
           ).timestamp
+
           expect(stakerHistoryTimestamp.toString()).to.be.equal(
             stakerOneTimestamp.toString()
           )
         })
       })
-      describe.skip("withdraw", () => {
-        beforeEach(() => {})
+      describe("withdraw", () => {
+        beforeEach(async () => {
+          await increaseAllowance(deployer)
+          await staking.initialFund(preMint)
+          await increaseAllowance()
+          await stake()
+        })
+        it("should claim rewards", async () => {
+          const txResponse = await staking.connect(staker).withdraw("0")
+          const withdrawTimestamp = (
+            await ethers.provider.getBlock(txResponse.blockHash!)
+          ).timestamp
+          const stakerHistoryTimestamp = (
+            await staking.s_OwnerToStake(staker.address, 0)
+          ).timestamp
+          expect(stakerHistoryTimestamp.toString()).to.be.equal(
+            withdrawTimestamp.toString()
+          )
+        })
+        it("should withdraw partially", async () => {
+          const interval = 10
+          await network.provider.send("evm_increaseTime", [interval])
+          await network.provider.request({ method: "evm_mine", params: [] })
+
+          const txResponse = await staking
+            .connect(staker)
+            .withdraw(ethers.utils.parseUnits("100"))
+
+          const amountLeft = await staking.s_OwnerToStake(staker.address, 0)
+          expect(amountLeft[0].toString()).to.be.equal(
+            ethers.utils.parseUnits("100").toString()
+          )
+        })
+        it("should withdraw full amount", async () => {
+          const interval = 10
+          await network.provider.send("evm_increaseTime", [interval])
+          await network.provider.request({ method: "evm_mine", params: [] })
+          await increaseAllowance()
+          await stake()
+          const txResponse = await staking
+            .connect(staker)
+            .withdraw(ethers.utils.parseUnits("200"))
+
+          const amountLeft = await staking.s_OwnerToStake(staker.address, 0)
+          expect(amountLeft[0].toString()).to.be.equal("0".toString())
+        })
       })
     })

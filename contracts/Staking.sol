@@ -3,7 +3,6 @@ pragma solidity ^0.8.0;
 
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "hardhat/console.sol";
 
 error Staking_TokenNotApproved();
 error Staking_AlreadyFunded();
@@ -122,23 +121,6 @@ contract Staking is Ownable {
     {
         Stake[] memory stakerHistory = s_OwnerToStake[staker];
 
-        // console.log("s_rewardRate", s_rewardRate);
-        // console.log("stakerOneTimestamp", stakerHistory[0].timestamp);
-        // console.log(
-        //     "staker2Timestamp",
-        //     s_OwnerToStake[0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC][0]
-        //         .timestamp
-        // );
-        // console.log("block", block.timestamp);
-        // console.log("stakerOneAmount", stakerHistory[0].amount);
-        // console.log(
-        //     "staker2 amount",
-        //     s_OwnerToStake[0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC][0].amount
-        // );
-        // console.log("total staked 0", s_TotalStakes[0].amount);
-        // console.log("total staked 1", s_TotalStakes[1].amount);
-        // console.log("total staked 2", s_TotalStakes[2].amount);
-
         uint256 stakerHistoryLen = stakerHistory.length;
         uint256[] memory rewards = new uint[](stakerHistoryLen);
         uint256 _reward;
@@ -148,11 +130,9 @@ contract Staking is Ownable {
             uint256 stakerAmount = stakerHistory[i].amount;
             uint256 stakerTimestamp = stakerHistory[i].timestamp;
             uint256 stakesLen = s_TotalStakes.length;
-            console.log("i", i, "stakerTimestamp", stakerTimestamp);
 
             for (uint j = 0; j < stakesLen; j++) {
                 uint256 totalTimestamp = s_TotalStakes[j].timestamp;
-                console.log("j", j, "totalTimestamp", totalTimestamp);
                 if (
                     j + 1 < stakesLen &&
                     stakerTimestamp >= totalTimestamp &&
@@ -194,11 +174,20 @@ contract Staking is Ownable {
 
     // should withdraw sender's stake starting from oldest & looping till amount is reached.
     function withdraw(uint256 amount) public {
-        // claimRewards();
-        // uint256 len = s_OwnerToStake[msg.sender].length;
-        // uint256 validatedAmount;
-        // for (uint i = 0; i < len; i++) {
-        // }
+        claimRewards();
+        Stake[] memory history = s_OwnerToStake[msg.sender];
+        uint256 len = history.length;
+        uint256 validatedAmount;
+        for (uint i = 0; i < len; i++) {
+            if (amount < history[i].amount) {
+                s_OwnerToStake[msg.sender][i].amount -= amount;
+                validatedAmount += amount;
+                break;
+            }
+            s_OwnerToStake[msg.sender][i].amount = 0;
+            validatedAmount += amount;
+        }
+        stakingToken.transfer(msg.sender, validatedAmount);
     }
 }
 
