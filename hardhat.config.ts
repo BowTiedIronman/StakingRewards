@@ -25,7 +25,8 @@ const config: HardhatUserConfig = {
     goerli: { chainId: 5, url: GOERLI_RPC_URL, accounts: [PRIVATE_KEY] }
   },
   etherscan: {
-    apiKey: ETHERSCAN_API_KEY
+    apiKey: ETHERSCAN_API_KEY,
+    customChains: []
   },
   gasReporter: {
     enabled: true,
