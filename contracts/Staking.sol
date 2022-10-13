@@ -28,12 +28,13 @@ contract Staking is Ownable {
     bool public s_isFunded;
     // rate the entire staking pool earns RWD per second, including the initial fund.
     //  However the initial fund does can not withdraw its share of reward tokens, they are just used in the calculation.
-    uint256 public rewardRate;
-    mapping(IERC20 => mapping(address => Stake[])) public tokenToOwnerToStake;
-    uint256 public totalStaked;
+    uint256 public s_rewardRate;
+    mapping(address => Stake[]) public s_OwnerToStake;
+    Stake[] public s_TotalStakes;
+    uint256 public s_totalStaked;
 
     constructor(uint256 _rewardRate) {
-        rewardRate = _rewardRate;
+        s_rewardRate = _rewardRate;
     }
 
     modifier fundOnlyOnce() {
@@ -54,6 +55,34 @@ contract Staking is Ownable {
         rewardToken = IRewardToken(token);
     }
 
+    function addToTotalStake(uint256 amount) internal {
+        uint256 len = s_TotalStakes.length;
+        if (len == 0) {
+            s_TotalStakes.push(Stake(amount, block.timestamp));
+        } else if (s_TotalStakes[len - 1].timestamp < block.timestamp) {
+            s_TotalStakes.push(
+                Stake(s_TotalStakes[len - 1].amount + amount, block.timestamp)
+            );
+        } else if (s_TotalStakes[len - 1].timestamp == block.timestamp) {
+            s_TotalStakes[len - 1].amount += amount;
+        }
+    }
+
+    function subtractFromTotalStake(uint256 amount) internal {
+        uint256 len = s_TotalStakes.length;
+        require(
+            s_TotalStakes[len - 1].amount > amount,
+            "amount staked less than amount withdrawn"
+        );
+        if (len == 0 || s_TotalStakes[len - 1].timestamp < block.timestamp) {
+            s_TotalStakes.push(
+                Stake(s_TotalStakes[len - 1].amount - amount, block.timestamp)
+            );
+        } else if (s_TotalStakes[len - 1].timestamp == block.timestamp) {
+            s_TotalStakes[len - 1].amount -= amount;
+        }
+    }
+
     /** @dev the inner mapping of owner=>balance resets everytime we change
      * s_stakingTokenAddress on condition that tokenToOwnerToStake[s_stakingTokenAddress]
      * is always used to access that owner=>balance mapping
@@ -64,7 +93,7 @@ contract Staking is Ownable {
     }
 
     function setRewardRate(uint256 _rewardRate) public onlyOwner {
-        rewardRate = _rewardRate;
+        s_rewardRate = _rewardRate;
     }
 
     function initialFund(uint256 amount) public onlyOwner fundOnlyOnce {
@@ -72,89 +101,105 @@ contract Staking is Ownable {
         //     Stake(amount, block.timestamp)
         // ); should the owner earn rewards for the initial fund?
         s_isFunded = true;
-        totalStaked += amount;
+        s_totalStaked += amount;
+        addToTotalStake(amount);
+        s_OwnerToStake[address(0)].push(Stake(amount, block.timestamp));
         stakingToken.transferFrom(msg.sender, address(this), amount);
     }
 
     function stake(uint256 amount) public isFunded {
-        stakingToken.transferFrom(msg.sender, address(this), amount); // test that it reverts if no tokens in wallet
-        totalStaked += amount;
-        tokenToOwnerToStake[stakingToken][msg.sender].push(
-            Stake(amount, block.timestamp)
-        );
+        addToTotalStake(amount);
+        stakingToken.transferFrom(msg.sender, address(this), amount);
+        s_totalStaked += amount;
+        s_OwnerToStake[msg.sender].push(Stake(amount, block.timestamp));
         emit Staked(msg.sender, address(stakingToken), amount);
     }
 
-    function getUserRewards(address staker)
+    function stakerRewards(address staker)
         public
         view
         returns (uint256[] memory)
     {
-        Stake[] memory stakingHistory = tokenToOwnerToStake[stakingToken][
-            staker
-        ];
+        Stake[] memory stakerHistory = s_OwnerToStake[staker];
 
-        uint256 blockt = block.timestamp;
-        console.log("getter UserRewards at timestamp %s", blockt);
-        uint256 len = stakingHistory.length;
-        uint256[] memory rewards = new uint[](len);
-        for (uint i = 0; i < len; i++) {
-            uint256 stakedAmount = stakingHistory[i].amount;
-            uint256 stakedTimestamp = stakingHistory[i].timestamp;
-            uint256 _reward = ((block.timestamp - stakedTimestamp) *
-                rewardRate *
-                stakedAmount) / totalStaked;
-            rewards[i] = _reward;
+        // console.log("s_rewardRate", s_rewardRate);
+        // console.log("stakerOneTimestamp", stakerHistory[0].timestamp);
+        // console.log(
+        //     "staker2Timestamp",
+        //     s_OwnerToStake[0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC][0]
+        //         .timestamp
+        // );
+        // console.log("block", block.timestamp);
+        // console.log("stakerOneAmount", stakerHistory[0].amount);
+        // console.log(
+        //     "staker2 amount",
+        //     s_OwnerToStake[0x3C44CdDdB6a900fa2b585dd299e03d12FA4293BC][0].amount
+        // );
+        // console.log("total staked 0", s_TotalStakes[0].amount);
+        // console.log("total staked 1", s_TotalStakes[1].amount);
+        // console.log("total staked 2", s_TotalStakes[2].amount);
+
+        uint256 stakerHistoryLen = stakerHistory.length;
+        uint256[] memory rewards = new uint[](stakerHistoryLen);
+        uint256 _reward;
+
+        //TODO : should be optimized
+        for (uint i = 0; i < stakerHistoryLen; i++) {
+            uint256 stakerAmount = stakerHistory[i].amount;
+            uint256 stakerTimestamp = stakerHistory[i].timestamp;
+            uint256 stakesLen = s_TotalStakes.length;
+            console.log("i", i, "stakerTimestamp", stakerTimestamp);
+
+            for (uint j = 0; j < stakesLen; j++) {
+                uint256 totalTimestamp = s_TotalStakes[j].timestamp;
+                console.log("j", j, "totalTimestamp", totalTimestamp);
+                if (
+                    j + 1 < stakesLen &&
+                    stakerTimestamp >= totalTimestamp &&
+                    stakerTimestamp < s_TotalStakes[j + 1].timestamp
+                ) {
+                    _reward +=
+                        (s_rewardRate *
+                            stakerAmount *
+                            (s_TotalStakes[j + 1].timestamp -
+                                s_TotalStakes[j].timestamp)) /
+                        s_TotalStakes[j].amount;
+                } else if (j == stakesLen - 1) {
+                    _reward +=
+                        (s_rewardRate *
+                            stakerAmount *
+                            (block.timestamp - s_TotalStakes[j].timestamp)) /
+                        s_TotalStakes[j].amount;
+                }
+
+                rewards[i] = _reward;
+            }
         }
         return rewards;
     }
 
     // resets the staked timestamps to current timestamps and claims all rewards
-    function claimRewards(uint256 _amount) public {
-        uint256[] memory rewards = getUserRewards(msg.sender);
+    function claimRewards() public {
+        uint256[] memory rewards = stakerRewards(msg.sender);
 
         uint256 len = rewards.length;
         uint256 amountValidated;
         for (uint i = 0; i < len; i++) {
-            uint256 blockt = block.timestamp;
-            console.log("i %s at timestamp %s", i, blockt);
-            // if reward slot greater than amount requested
-            if (rewards[i] >= _amount) {
-                console.log(
-                    "reward %s greater than amount requested %s",
-                    rewards[i],
-                    _amount
-                );
-                rewards[i] -= _amount;
-                amountValidated += _amount;
-                uint256 timestampReconsiliation = (rewards[i] * totalStaked) /
-                    (rewardRate *
-                        tokenToOwnerToStake[stakingToken][msg.sender][i]
-                            .amount);
-                tokenToOwnerToStake[stakingToken][msg.sender][i].timestamp =
-                    block.timestamp -
-                    timestampReconsiliation;
-                break;
-                // if reward slot less than amount requested
-            } else {
-                console.log(
-                    "reward %s less than amount requested %s",
-                    rewards[i],
-                    _amount
-                );
-                _amount -= rewards[i];
-                amountValidated += rewards[i];
-                rewards[i] = 0;
-                tokenToOwnerToStake[stakingToken][msg.sender][i]
-                    .timestamp = block.timestamp;
-            }
+            amountValidated += rewards[i];
+            // reseting timestamp resets reward calculation in stakerRewards()
+            s_OwnerToStake[msg.sender][i].timestamp = block.timestamp;
         }
-        console.log("valid rewards amount to mint %s", amountValidated);
         rewardToken.mint(msg.sender, amountValidated);
     }
 
     // should withdraw sender's stake starting from oldest & looping till amount is reached.
-    function withdraw() public {}
+    function withdraw(uint256 amount) public {
+        // claimRewards();
+        // uint256 len = s_OwnerToStake[msg.sender].length;
+        // uint256 validatedAmount;
+        // for (uint i = 0; i < len; i++) {
+        // }
+    }
 }
 
 interface IRewardToken {

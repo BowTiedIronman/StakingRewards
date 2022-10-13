@@ -4,7 +4,7 @@ import { assert, expect } from "chai"
 import { network, deployments, ethers } from "hardhat"
 import { developmentChains, rewardRate } from "../../helper-hardhat-config"
 import { StakedToken, Staking, RewardToken } from "../../typechain-types"
-import { BigNumber } from "ethers"
+import { BigNumber, BigNumberish } from "ethers"
 
 network.config.chainId !== 31337
   ? describe.skip
@@ -18,11 +18,12 @@ network.config.chainId !== 31337
       let preMint: BigNumber
 
       const increaseAllowance = async function (
-        user: SignerWithAddress = staker
+        user: SignerWithAddress = staker,
+        eth: number = 2
       ) {
         await stakedToken
           .connect(user)
-          .mint({ value: ethers.utils.parseEther("2") })
+          .mint({ value: ethers.utils.parseEther(eth.toString()) })
         const res = await stakedToken
           .connect(user)
           .increaseAllowance(
@@ -33,15 +34,18 @@ network.config.chainId !== 31337
         return await res.wait(1)
       }
 
-      const stake = async function () {
+      const stake = async function (
+        user: SignerWithAddress = staker,
+        amount: BigNumberish = 200
+      ) {
         const res = await staking
-          .connect(staker)
-          .stake(ethers.utils.parseUnits("200"))
+          .connect(user)
+          .stake(ethers.utils.parseUnits(amount.toString()))
         return res.wait(1)
       }
 
       const getUserRewards = async (
-        stakeStruct: { timestamp: BigNumber; amount: BigNumber },
+        stakeStruct: { timestamp: BigNumber; amount: BigNumber }[],
         rewardRate: number,
         totalStaked: BigNumber,
         currenBlockTimestamp?: number
@@ -49,15 +53,11 @@ network.config.chainId !== 31337
         if (!currenBlockTimestamp)
           currenBlockTimestamp = (await hre.ethers.provider.getBlock("latest"))
             .timestamp
-
-        return stakeStruct.amount
-          .mul(rewardRate)
-          .mul(BigNumber.from(currenBlockTimestamp).sub(stakeStruct.timestamp))
-          .div(totalStaked)
+        for (let i = 0; i < stakeStruct.length; i++) {}
       }
 
       beforeEach(async () => {
-        const accounts = await ethers.getSigners()
+        accounts = await ethers.getSigners()
         deployer = accounts[0]
         staker = accounts[1]
         await deployments.fixture(["all"])
@@ -88,7 +88,9 @@ network.config.chainId !== 31337
           await increaseAllowance(deployer)
           await staking.initialFund(preMint)
           expect(await staking.s_isFunded()).to.be.true
-          expect((await staking.totalStaked()).toString()).to.be.equal(preMint)
+          expect((await staking.s_totalStaked()).toString()).to.be.equal(
+            preMint
+          )
         })
       })
       describe.skip("stake", () => {
@@ -96,71 +98,124 @@ network.config.chainId !== 31337
         beforeEach(async () => {
           await increaseAllowance(deployer)
           await staking.initialFund(preMint)
-          const stakedByPreMint = await staking.totalStaked()
           await increaseAllowance()
           await stake()
         })
 
         it("emits Staked event", async () => {
           await increaseAllowance()
-          await expect(staking.connect(staker).stake(stakerBalance)).to.emit(
-            staking,
-            `Staked`
-          )
+          await expect(
+            staking.connect(staker).stake(ethers.utils.parseUnits("200"))
+          ).to.emit(staking, "Staked")
         })
         it("transfers token to contract", async () => {
-          expect(await stakedToken.balanceOf(staking.address)).to.be.equal(
-            preMint.add(stakerBalance)
-          )
-        })
-        it("adds tokens to map", async () => {
           expect(
-            (
-              await staking.tokenToOwnerToStake(
-                stakedToken.address,
-                staker.address,
-                0
-              )
-            )[0].toString()
-          ).to.be.equal(stakerBalance)
+            (await stakedToken.balanceOf(staking.address)).toString()
+          ).to.be.equal("21000200000000000000000000")
         })
-        it("calculates repeated staking reward correctly", async () => {
+        it("adds tokens to vars", async () => {
+          expect(await (await staking.s_totalStaked()).toString()).to.be.equal(
+            "21000200000000000000000000"
+          )
+          expect(
+            (await staking.s_TotalStakes(0)).amount.toString()
+          ).to.be.equal("200000000000000000000")
+        })
+      })
+      describe.skip("stakerRewards", () => {
+        beforeEach(async () => {
+          await increaseAllowance(deployer)
+          await staking.initialFund(preMint)
+        })
+        it("calculates correctly single stake", async () => {
+          await increaseAllowance(accounts[1])
+
+          const stakerOneAmount = ethers.utils.parseUnits("200")
+          const stakerOneResponse = await staking
+            .connect(accounts[1])
+            .stake(stakerOneAmount)
+
           const interval = 10
           await network.provider.send("evm_increaseTime", [interval])
           await network.provider.request({ method: "evm_mine", params: [] })
-          await increaseAllowance()
-          await stake()
+
+          const stakerOneTimestamp = (
+            await ethers.provider.getBlock(stakerOneResponse.blockHash!)
+          ).timestamp
+
+          const reward = await staking.stakerRewards(accounts[1].address)
+
+          const latestBlock = await ethers.provider.getBlock("latest")
+
+          const expectedReward = stakerOneAmount
+            .mul(rewardRate)
+            .mul(latestBlock.timestamp - stakerOneTimestamp)
+            .div(preMint.add(stakerOneAmount))
+
+          expect(reward.toString()).to.be.equal(expectedReward.toString())
+        })
+        it("calculates correctly multiple stakings", async () => {
+          await increaseAllowance(accounts[1])
+          await increaseAllowance(accounts[2], 3)
+          const stakerOneAmount = ethers.utils.parseUnits("200")
+          const stakerTwoAmount = ethers.utils.parseUnits("300")
+          const stakerOneResponse = await staking
+            .connect(accounts[1])
+            .stake(stakerOneAmount)
+
+          const interval = 10
+          await network.provider.send("evm_increaseTime", [interval])
+          await network.provider.request({ method: "evm_mine", params: [] })
+
+          const stakerTwoResponse = await staking
+            .connect(accounts[2])
+            .stake(stakerTwoAmount)
 
           await network.provider.send("evm_increaseTime", [interval])
           await network.provider.request({ method: "evm_mine", params: [] })
 
-          const totalStaked = await stakedToken.balanceOf(staking.address)
-          const firstStake = await staking.tokenToOwnerToStake(
-            stakedToken.address,
-            staker.address,
-            0
-          )
+          const stakerOneTimestamp = (
+            await ethers.provider.getBlock(stakerOneResponse.blockHash!)
+          ).timestamp
+          const stakerTwoTimestamp = (
+            await ethers.provider.getBlock(stakerTwoResponse.blockHash!)
+          ).timestamp
 
-          const firstStakeReward = await getUserRewards(
-            firstStake,
-            rewardRate,
-            totalStaked
-          )
+          const reward = await staking.stakerRewards(accounts[1].address)
+          /*
+          ____----=====
+          
+          phase 1 : initial fund
+          phase 2 : first staker
+          phase 3 : 2nd staker
+          */
+          const latestBlock = await ethers.provider.getBlock("latest")
+          const pahse1Staker1Reward = stakerOneAmount
+            .mul(rewardRate)
+            .mul(stakerTwoTimestamp - stakerOneTimestamp)
+            .div(preMint.add(stakerOneAmount))
 
-          const secondStake = await staking.tokenToOwnerToStake(
-            stakedToken.address,
-            staker.address,
-            1
-          )
-          const secondStakeReward = await getUserRewards(
-            secondStake,
-            rewardRate,
-            totalStaked
-          )
+          const pahse2Staker1Reward = stakerOneAmount
+            .mul(rewardRate)
+            .mul(latestBlock.timestamp - stakerTwoTimestamp)
+            .div(preMint.add(stakerOneAmount).add(stakerTwoAmount))
 
-          expect(
-            (await staking.getUserRewards(staker.address)).toString()
-          ).to.be.equal([firstStakeReward, secondStakeReward].toString())
+          const expectedReward = pahse1Staker1Reward.add(pahse2Staker1Reward)
+          // console.log({
+          //   address2: accounts[2].address,
+          //   rewardRate,
+          //   stakerOneTimestamp,
+          //   stakerTwoTimestamp,
+          //   latestBlock: latestBlock.timestamp,
+          //   stakerOneAmount: stakerOneAmount.toString(),
+          //   stakerTwoAmount: stakerTwoAmount.toString(),
+          //   preMint: preMint.toString(),
+          //   pahse1Staker1Reward: pahse1Staker1Reward.toString(),
+          //   pahse2Staker1Reward: pahse2Staker1Reward.toString(),
+          //   expectedReward: expectedReward.toString(),
+          //   reward: reward.toString()
+          // })
+          expect(reward.toString()).to.be.equal(expectedReward.toString())
         })
       })
       describe("claim reward", () => {
@@ -170,55 +225,31 @@ network.config.chainId !== 31337
           await increaseAllowance()
           await stake()
         })
-        it("request greater than reward, rewards user the validated amount.", async () => {
-          let firstStake = await staking.tokenToOwnerToStake(
-            stakedToken.address,
-            staker.address,
-            0
-          )
-          const stakingResponse = await staking
-            .connect(staker)
-            .claimRewards(ethers.utils.parseEther("500"))
-          const totalStaked = await stakedToken.balanceOf(staking.address)
+        it("claims all reward", async () => {
+          const interval = 10
+          await network.provider.send("evm_increaseTime", [interval])
+          await network.provider.request({ method: "evm_mine", params: [] })
 
-          const expectedRewards = await getUserRewards(
-            firstStake,
-            rewardRate,
-            totalStaked,
-            stakingResponse.timestamp
-          )
-
+          const txResponse = await staking.connect(staker).claimRewards()
           expect(
             (await rewardToken.balanceOf(staker.address)).toString()
-          ).to.be.equal(expectedRewards.toString())
+          ).to.be.not.equal("0")
         })
-        describe("request is less than reward", () => {
-          it("rewards user the validated amount.", async () => {
-            let firstStake = await staking.tokenToOwnerToStake(
-              stakedToken.address,
-              staker.address,
-              0
-            )
-            const stakingResponse = await staking
-              .connect(staker)
-              .claimRewards(ethers.utils.parseEther("500"))
-            const totalStaked = await stakedToken.balanceOf(staking.address)
+        it("resets the timestamp reward correctly.", async () => {
+          const txResponse = await staking.connect(staker).claimRewards()
 
-            const expectedRewards = await getUserRewards(
-              firstStake,
-              rewardRate,
-              totalStaked,
-              stakingResponse.timestamp
-            )
+          const stakerOneTimestamp = (
+            await ethers.provider.getBlock(txResponse.blockHash!)
+          ).timestamp
 
-            expect(
-              (await rewardToken.balanceOf(staker.address)).toString()
-            ).to.be.equal(expectedRewards.toString())
-          })
-          it("resets the remaining reward correctly.", async () => {})
+          const stakerHistoryTimestamp = (
+            await staking.s_OwnerToStake(staker.address, 0)
+          ).timestamp
+          expect(stakerHistoryTimestamp.toString()).to.be.equal(
+            stakerOneTimestamp.toString()
+          )
         })
       })
-
       describe.skip("withdraw", () => {
         beforeEach(() => {})
       })
