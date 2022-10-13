@@ -16,7 +16,6 @@ contract RewardToken is ERC20, Ownable {
     // only mint by the staking contract
     function mint(address to, uint256 amount) external {
         if (msg.sender != stakingContract) revert RewardToken__NotAuthorized();
-        console.log("minting amount %s", amount);
         _mint(to, amount);
     }
 
