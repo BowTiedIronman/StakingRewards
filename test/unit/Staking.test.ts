@@ -285,5 +285,32 @@ network.config.chainId !== 31337
           const amountLeft = await staking.s_OwnerToStake(staker.address, 0)
           expect(amountLeft[0].toString()).to.be.equal("0".toString())
         })
+        it("should withdraw only the amount the user has", async () => {
+          const interval = 10
+          await network.provider.send("evm_increaseTime", [interval])
+          await network.provider.request({ method: "evm_mine", params: [] })
+          await increaseAllowance()
+          await stake()
+
+          const stakingAmount0 = (
+            await staking.s_OwnerToStake(staker.address, 0)
+          ).amount.toString()
+          const stakingAmount1 = (
+            await staking.s_OwnerToStake(staker.address, 1)
+          ).amount.toString()
+
+          console.log({ stakingAmount0 })
+          console.log({ stakingAmount1 })
+          const txResponse = await staking
+            .connect(staker)
+            .withdraw(ethers.utils.parseUnits("500"))
+
+          txResponse.wait(1)
+
+          const balance = await stakedToken.balanceOf(staker.address)
+          expect(balance.toString()).to.be.equal(
+            "400000000000000000000".toString()
+          )
+        })
       })
     })

@@ -173,19 +173,21 @@ contract Staking is Ownable {
     }
 
     // should withdraw sender's stake starting from oldest & looping till amount is reached.
-    function withdraw(uint256 amount) public {
+    function withdraw(uint256 _amount) public {
         claimRewards();
         Stake[] memory history = s_OwnerToStake[msg.sender];
         uint256 len = history.length;
         uint256 validatedAmount;
+        uint256 amountLeft = _amount;
         for (uint i = 0; i < len; i++) {
-            if (amount < history[i].amount) {
-                s_OwnerToStake[msg.sender][i].amount -= amount;
-                validatedAmount += amount;
+            if (amountLeft < history[i].amount) {
+                s_OwnerToStake[msg.sender][i].amount -= amountLeft;
+                validatedAmount += amountLeft;
                 break;
             }
+            amountLeft -= s_OwnerToStake[msg.sender][i].amount;
+            validatedAmount += s_OwnerToStake[msg.sender][i].amount;
             s_OwnerToStake[msg.sender][i].amount = 0;
-            validatedAmount += amount;
         }
         stakingToken.transfer(msg.sender, validatedAmount);
     }
